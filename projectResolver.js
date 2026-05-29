@@ -5,7 +5,7 @@ const PROJECT_INTEGRATIONS_COLLECTION = String(
 ).trim();
 const PROJECT_RESOLVER_REFRESH_MS = Number(process.env.PROJECT_RESOLVER_REFRESH_MS || 60000);
 
-const SUPPORTED_PLATFORMS = ["instagram", "facebook", "whatsapp"];
+const SUPPORTED_PLATFORMS = ["instagram", "facebook", "whatsapp", "meta_leads"];
 
 let refreshTimer = null;
 let projectDbClients = [];
@@ -56,6 +56,11 @@ function readReceiverIds(platform, integrationDoc) {
     return phoneNumberId ? [{ receiverId: phoneNumberId, matchedField: "credentials.phoneNumberId" }] : [];
   }
 
+  if (platform === "meta_leads") {
+    const facebookPageId = String(credentials.facebookPageId || "").trim();
+    return facebookPageId ? [{ receiverId: facebookPageId, matchedField: "credentials.facebookPageId" }] : [];
+  }
+
   return [];
 }
 
@@ -64,7 +69,7 @@ async function buildRoutingIndex() {
   const routesByProject = new Map();
 
   for (const project of projectDbClients) {
-    routesByProject.set(project.projectId, { instagram: 0, facebook: 0, whatsapp: 0 });
+    routesByProject.set(project.projectId, { instagram: 0, facebook: 0, whatsapp: 0, meta_leads: 0 });
     const db = project.client.db();
     const collection = db.collection(PROJECT_INTEGRATIONS_COLLECTION);
 
@@ -124,16 +129,22 @@ async function buildRoutingIndex() {
       const routeCounts = routesByProject.get(project.projectId) || {
         instagram: 0,
         facebook: 0,
-        whatsapp: 0
+        whatsapp: 0,
+        meta_leads: 0
       };
       return {
         projectId: project.projectId,
         routeCounts,
-        totalRoutes: routeCounts.instagram + routeCounts.facebook + routeCounts.whatsapp,
+        totalRoutes:
+          routeCounts.instagram +
+          routeCounts.facebook +
+          routeCounts.whatsapp +
+          routeCounts.meta_leads,
         backendWebhookUrls: {
           instagram: Boolean(project.backendWebhookUrls.instagram),
           facebook: Boolean(project.backendWebhookUrls.facebook),
-          whatsapp: Boolean(project.backendWebhookUrls.whatsapp)
+          whatsapp: Boolean(project.backendWebhookUrls.whatsapp),
+          meta_leads: Boolean(project.backendWebhookUrls.meta_leads)
         }
       };
     }),
@@ -174,6 +185,7 @@ async function initProjectResolver() {
       instagram: Boolean(project.backendWebhookUrls.instagram),
       facebook: Boolean(project.backendWebhookUrls.facebook),
       whatsapp: Boolean(project.backendWebhookUrls.whatsapp),
+      meta_leads: Boolean(project.backendWebhookUrls.meta_leads),
       verifyTokenConfigured: project.verifyTokenConfigured
     });
   });

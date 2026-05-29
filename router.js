@@ -12,6 +12,7 @@ const { createTraceId, logInfo, logWarn } = require("./logger");
 const router = express.Router();
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+const META_LEADS_VERIFY_TOKEN = String(process.env.META_LEADS_VERIFY_TOKEN || "").trim();
 function collectAppSecrets() {
   const csvSecrets = String(process.env.APP_SECRETS || "")
     .split(",")
@@ -21,6 +22,7 @@ function collectAppSecrets() {
   const singleSecrets = [
     process.env.APP_SECRET,
     process.env.META_APP_SECRET,
+    process.env.META_LEADS_APP_SECRET,
     process.env.INSTAGRAM_APP_SECRET,
     process.env.FACEBOOK_APP_SECRET,
     process.env.WHATSAPP_APP_SECRET
@@ -37,6 +39,7 @@ router.get("/meta/webhook", (req, res) => {
   const providedToken = req.query["hub.verify_token"];
   const isTokenValid =
     (VERIFY_TOKEN && providedToken === VERIFY_TOKEN) ||
+    (META_LEADS_VERIFY_TOKEN && providedToken === META_LEADS_VERIFY_TOKEN) ||
     isKnownVerifyToken(providedToken) ||
     isKnownProjectVerifyToken(providedToken);
 

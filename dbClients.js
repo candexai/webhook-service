@@ -10,7 +10,8 @@ function buildWebhookUrlsFromIndexedEnv(index) {
       return {
         instagram: String(parsed.instagram || "").trim(),
         facebook: String(parsed.facebook || "").trim(),
-        whatsapp: String(parsed.whatsapp || "").trim()
+        whatsapp: String(parsed.whatsapp || "").trim(),
+        meta_leads: String(parsed.meta_leads || "").trim()
       };
     } catch (error) {
       throw new Error(`PROJECT_BACKEND_WEBHOOK_URLS_${index} must be valid JSON`);
@@ -20,19 +21,21 @@ function buildWebhookUrlsFromIndexedEnv(index) {
   const instagram = String(process.env[`INSTAGRAM_WEBHOOK_URL_${index}`] || "").trim();
   const facebook = String(process.env[`FACEBOOK_WEBHOOK_URL_${index}`] || "").trim();
   const whatsapp = String(process.env[`WHATSAPP_WEBHOOK_URL_${index}`] || "").trim();
-  if (instagram || facebook || whatsapp) {
-    return { instagram, facebook, whatsapp };
+  const meta_leads = String(process.env[`META_LEADS_WEBHOOK_URL_${index}`] || "").trim();
+  if (instagram || facebook || whatsapp || meta_leads) {
+    return { instagram, facebook, whatsapp, meta_leads };
   }
 
   const baseUrl = String(process.env[`PROJECT_BACKEND_BASE_URL_${index}`] || "").trim();
   if (!baseUrl) {
-    return { instagram: "", facebook: "", whatsapp: "" };
+    return { instagram: "", facebook: "", whatsapp: "", meta_leads: "" };
   }
 
   return {
     instagram: `${baseUrl}/api/v1/webhooks/instagram`,
     facebook: `${baseUrl}/api/v1/social-integrations/messenger/webhook`,
-    whatsapp: `${baseUrl}/api/v1/social-integrations/whatsapp/webhook`
+    whatsapp: `${baseUrl}/api/v1/social-integrations/whatsapp/webhook`,
+    meta_leads: `${baseUrl}/api/v1/social-integrations/meta-leads/webhook`
   };
 }
 
@@ -51,11 +54,15 @@ function parseIndexedProjectConfig() {
     }
 
     const verifyToken = String(process.env[`PROJECT_VERIFY_TOKEN_${index}`] || "").trim();
+    const metaLeadsVerifyToken = String(
+      process.env[`PROJECT_META_LEADS_VERIFY_TOKEN_${index}`] || verifyToken
+    ).trim();
 
     return {
       projectId,
       mongoUri,
       verifyToken,
+      metaLeadsVerifyToken,
       backendWebhookUrls: buildWebhookUrlsFromIndexedEnv(index)
     };
   });
@@ -104,15 +111,18 @@ function parseProjectDbsConfig() {
     }
 
     const verifyToken = String(item.verifyToken || "").trim();
+    const metaLeadsVerifyToken = String(item.metaLeadsVerifyToken || verifyToken).trim();
 
     return {
       projectId,
       mongoUri,
       verifyToken,
+      metaLeadsVerifyToken,
       backendWebhookUrls: {
         instagram: String(backendWebhookUrls.instagram || "").trim(),
         facebook: String(backendWebhookUrls.facebook || "").trim(),
-        whatsapp: String(backendWebhookUrls.whatsapp || "").trim()
+        whatsapp: String(backendWebhookUrls.whatsapp || "").trim(),
+        meta_leads: String(backendWebhookUrls.meta_leads || "").trim()
       }
     };
   });
@@ -126,17 +136,27 @@ function isKnownProjectVerifyToken(token) {
     return false;
   }
 
-  return cachedProjectConfigs.some((config) => config.verifyToken && config.verifyToken === verifyToken);
+  return cachedProjectConfigs.some((config) => {
+    if (config.verifyToken && config.verifyToken === verifyToken) {
+      return true;
+    }
+    if (config.metaLeadsVerifyToken && config.metaLeadsVerifyToken === verifyToken) {
+      return true;
+    }
+    return false;
+  });
 }
 
 function getConfiguredProjects() {
   return cachedProjectConfigs.map((config) => ({
     projectId: config.projectId,
     verifyTokenConfigured: Boolean(config.verifyToken),
+    metaLeadsVerifyTokenConfigured: Boolean(config.metaLeadsVerifyToken),
     backendWebhookUrls: {
       instagram: config.backendWebhookUrls.instagram || null,
       facebook: config.backendWebhookUrls.facebook || null,
-      whatsapp: config.backendWebhookUrls.whatsapp || null
+      whatsapp: config.backendWebhookUrls.whatsapp || null,
+      meta_leads: config.backendWebhookUrls.meta_leads || null
     }
   }));
 }

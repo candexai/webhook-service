@@ -16,27 +16,47 @@ function assertInternalSecretConfigured() {
   }
 }
 
+function entryHasLeadgenChange(entry) {
+  const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+  return changes.some((change) => String(change?.field || "").toLowerCase() === "leadgen");
+}
+
 function getRouteContext(payload, entry) {
   const objectType = String(payload?.object || "").toLowerCase();
 
   if (objectType === "instagram") {
     const receiverId = entry?.id ? String(entry.id) : null;
-    return receiverId ? { platform: "instagram", receiverId } : null;
+    return receiverId ? { platform: "instagram", receiverId, eventType: "instagram" } : null;
   }
 
   if (objectType === "whatsapp_business_account") {
     const phoneNumberId = entry?.changes?.[0]?.value?.metadata?.phone_number_id;
     const receiverId = phoneNumberId ? String(phoneNumberId) : null;
-    return receiverId ? { platform: "whatsapp", receiverId } : null;
+    return receiverId ? { platform: "whatsapp", receiverId, eventType: "whatsapp" } : null;
   }
 
   if (objectType === "page") {
-    const isInstagramScoped = Boolean(entry?.changes?.[0]?.value?.instagram_account_id);
     const receiverId = entry?.id ? String(entry.id) : null;
     if (!receiverId) {
       return null;
     }
-    return { platform: isInstagramScoped ? "instagram" : "facebook", receiverId };
+
+    // Meta Lead Ads — must route to meta-leads webhook, not Messenger.
+    if (entryHasLeadgenChange(entry)) {
+      return { platform: "meta_leads", receiverId, eventType: "leadgen" };
+    }
+
+    // Messenger / page messaging events (unchanged).
+    if (Array.isArray(entry?.messaging) && entry.messaging.length > 0) {
+      return { platform: "facebook", receiverId, eventType: "messaging" };
+    }
+
+    const isInstagramScoped = Boolean(entry?.changes?.[0]?.value?.instagram_account_id);
+    if (isInstagramScoped) {
+      return { platform: "instagram", receiverId, eventType: "instagram_change" };
+    }
+
+    return { platform: "facebook", receiverId, eventType: "page" };
   }
 
   return null;
@@ -59,7 +79,8 @@ function collectEventSummary(payload, entry) {
     recipientId: firstMessaging?.recipient?.id ? String(firstMessaging.recipient.id) : null,
     mid: firstMessage?.mid || null,
     textPreview: typeof firstMessage?.text === "string" ? firstMessage.text.slice(0, 100) : null,
-    isFacebookPageEvent: objectType === "page"
+    isFacebookPageEvent: objectType === "page",
+    hasLeadgenChange: entryHasLeadgenChange(entry)
   };
 }
 
@@ -153,6 +174,8 @@ async function processWebhookPayload(payload, requestHeaders, traceId) {
       projectId: resolved.projectId,
       platform: routeContext.platform,
       receiverId: routeContext.receiverId,
+      eventType: routeContext.eventType || null,
+      forwardUrl: resolved.forwardUrl,
       entryIndex: index
     });
 
