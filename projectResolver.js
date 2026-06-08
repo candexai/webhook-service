@@ -27,14 +27,57 @@ function isStatusConnected(status) {
   return String(status || "").toLowerCase() === "connected";
 }
 
-function createRouteRecord({ platform, receiverId, projectId, forwardUrl, integrationId, matchedField }) {
+function parseTimestamp(value) {
+  if (!value) {
+    return 0;
+  }
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getIntegrationConnectedAt(doc) {
+  const candidates = [
+    doc?.connectedAt,
+    doc?.lastConnectedAt,
+    doc?.updatedAt,
+    doc?.credentials?.connectedAt
+  ];
+
+  for (const candidate of candidates) {
+    const timestamp = parseTimestamp(candidate);
+    if (timestamp > 0) {
+      return timestamp;
+    }
+  }
+
+  const id = doc?._id;
+  if (id && typeof id.getTimestamp === "function") {
+    return id.getTimestamp().getTime();
+  }
+
+  return 0;
+}
+
+function createRouteRecord({
+  platform,
+  receiverId,
+  projectId,
+  forwardUrl,
+  integrationId,
+  matchedField,
+  connectedAt
+}) {
   return {
     platform,
     receiverId,
     projectId,
     forwardUrl,
     integrationId,
-    matchedField
+    matchedField,
+    connectedAt: connectedAt || 0
   };
 }
 
@@ -75,7 +118,18 @@ async function buildRoutingIndex() {
 
     for (const platform of SUPPORTED_PLATFORMS) {
       const docs = await collection
-        .find({ platform, status: "connected" }, { projection: { credentials: 1, status: 1 } })
+        .find(
+          { platform, status: "connected" },
+          {
+            projection: {
+              credentials: 1,
+              status: 1,
+              updatedAt: 1,
+              connectedAt: 1,
+              lastConnectedAt: 1
+            }
+          }
+        )
         .toArray();
 
       docs.forEach((doc) => {
@@ -83,42 +137,56 @@ async function buildRoutingIndex() {
           return;
         }
 
+        const connectedAt = getIntegrationConnectedAt(doc);
         const receiverEntries = readReceiverIds(platform, doc);
         receiverEntries.forEach(({ receiverId, matchedField }) => {
           const routeKey = buildRouteKey(platform, receiverId);
-          if (nextIndex.has(routeKey)) {
-            const existing = nextIndex.get(routeKey);
-            console.warn(
-              `[resolver] duplicate receiver mapping detected for ${routeKey}; keeping first project=${existing.projectId}, skipping project=${project.projectId}`
-            );
-            return;
-          }
-
           const forwardUrl = project.backendWebhookUrls[platform];
           if (!forwardUrl) {
             return;
           }
 
-          nextIndex.set(
-            routeKey,
-            createRouteRecord({
-              platform,
-              receiverId,
-              projectId: project.projectId,
-              forwardUrl,
-              integrationId: String(doc._id || ""),
-              matchedField
-            })
-          );
+          const candidate = createRouteRecord({
+            platform,
+            receiverId,
+            projectId: project.projectId,
+            forwardUrl,
+            integrationId: String(doc._id || ""),
+            matchedField,
+            connectedAt
+          });
 
-          const projectRoutes = routesByProject.get(project.projectId);
-          if (projectRoutes) {
-            projectRoutes[platform] += 1;
+          if (nextIndex.has(routeKey)) {
+            const existing = nextIndex.get(routeKey);
+            if (candidate.connectedAt > existing.connectedAt) {
+              console.warn(
+                `[resolver] duplicate receiver mapping detected for ${routeKey}; using most recent connection project=${candidate.projectId}, replacing project=${existing.projectId}`
+              );
+              nextIndex.set(routeKey, candidate);
+            } else {
+              console.warn(
+                `[resolver] duplicate receiver mapping detected for ${routeKey}; keeping project=${existing.projectId}, skipping project=${candidate.projectId}`
+              );
+            }
+            return;
           }
+
+          nextIndex.set(routeKey, candidate);
         });
       });
     }
   }
+
+  routesByProject.forEach((_counts, projectId) => {
+    routesByProject.set(projectId, { instagram: 0, facebook: 0, whatsapp: 0, meta_leads: 0 });
+  });
+
+  nextIndex.forEach((route) => {
+    const projectRoutes = routesByProject.get(route.projectId);
+    if (projectRoutes) {
+      projectRoutes[route.platform] += 1;
+    }
+  });
 
   routingIndex = nextIndex;
   resolverStats = {
