@@ -10,6 +10,7 @@ const { getConfiguredProjects } = require("./dbClients");
 const {
   getResolverStats,
   resolveProjectWebhook,
+  resolveProjectWebhookAny,
   refreshRoutingIndex
 } = require("./projectResolver");
 
@@ -62,13 +63,20 @@ router.get("/routing/projects", (_req, res) => {
 router.get("/routing/debug", (req, res) => {
   const platform = String(req.query.platform || "").trim();
   const receiverId = String(req.query.receiverId || "").trim();
-  const resolved = platform && receiverId ? resolveProjectWebhook(platform, receiverId) : null;
+  const receiverIds = String(req.query.receiverIds || "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  const idsToTry = receiverIds.length > 0 ? receiverIds : receiverId ? [receiverId] : [];
+  const resolved =
+    platform && idsToTry.length > 0 ? resolveProjectWebhookAny(platform, idsToTry) : null;
 
   res.status(200).json({
     resolver: getResolverStats(),
     input: {
       platform,
-      receiverId
+      receiverId,
+      receiverIds: idsToTry
     },
     resolved: resolved || null
   });

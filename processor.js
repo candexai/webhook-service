@@ -1,6 +1,6 @@
 const axios = require("axios");
 
-const { resolveProjectWebhook } = require("./projectResolver");
+const { resolveProjectWebhookAny } = require("./projectResolver");
 const { logError, logInfo, logWarn } = require("./logger");
 
 const INTERNAL_SECRET = String(process.env.INTERNAL_SECRET || "").trim();
@@ -31,8 +31,19 @@ function getRouteContext(payload, entry) {
 
   if (objectType === "whatsapp_business_account") {
     const phoneNumberId = entry?.changes?.[0]?.value?.metadata?.phone_number_id;
-    const receiverId = phoneNumberId ? String(phoneNumberId) : null;
-    return receiverId ? { platform: "whatsapp", receiverId, eventType: "whatsapp" } : null;
+    const wabaId = entry?.id;
+    const receiverIds = [];
+    if (phoneNumberId) {
+      receiverIds.push(String(phoneNumberId));
+    }
+    // Fallback: Meta WABA webhooks also include the WABA id on entry.id
+    if (wabaId) {
+      receiverIds.push(String(wabaId));
+    }
+    if (receiverIds.length === 0) {
+      return null;
+    }
+    return { platform: "whatsapp", receiverIds, eventType: "whatsapp" };
   }
 
   if (objectType === "page") {
@@ -160,11 +171,14 @@ async function processWebhookPayload(payload, requestHeaders, traceId) {
       return;
     }
 
-    const resolved = resolveProjectWebhook(routeContext.platform, routeContext.receiverId);
+    const resolved = resolveProjectWebhookAny(
+      routeContext.platform,
+      routeContext.receiverIds || [routeContext.receiverId]
+    );
     if (!resolved) {
       logWarn(traceId, "[webhook] no routing target found", {
         platform: routeContext.platform,
-        receiverId: routeContext.receiverId,
+        receiverIds: routeContext.receiverIds || [routeContext.receiverId],
         entryIndex: index
       });
       return;
@@ -173,7 +187,8 @@ async function processWebhookPayload(payload, requestHeaders, traceId) {
     logInfo(traceId, "[webhook] resolved project route", {
       projectId: resolved.projectId,
       platform: routeContext.platform,
-      receiverId: routeContext.receiverId,
+      receiverId: resolved.matchedReceiverId,
+      receiverIdsTried: routeContext.receiverIds || [routeContext.receiverId],
       eventType: routeContext.eventType || null,
       forwardUrl: resolved.forwardUrl,
       entryIndex: index

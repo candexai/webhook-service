@@ -95,8 +95,32 @@ function readReceiverIds(platform, integrationDoc) {
   }
 
   if (platform === "whatsapp") {
-    const phoneNumberId = String(credentials.phoneNumberId || "").trim();
-    return phoneNumberId ? [{ receiverId: phoneNumberId, matchedField: "credentials.phoneNumberId" }] : [];
+    const entries = [];
+    const rawPhoneNumberId = credentials.phoneNumberId;
+    if (rawPhoneNumberId != null && String(rawPhoneNumberId).trim() !== "") {
+      const phoneNumberIdStr = String(rawPhoneNumberId).trim();
+      entries.push({
+        receiverId: phoneNumberIdStr,
+        matchedField: "credentials.phoneNumberId"
+      });
+      // Legacy rows may store phoneNumberId as a BSON number — index canonical string form too.
+      if (!Number.isNaN(Number(phoneNumberIdStr))) {
+        const normalized = String(Number(phoneNumberIdStr));
+        if (normalized !== phoneNumberIdStr) {
+          entries.push({
+            receiverId: normalized,
+            matchedField: "credentials.phoneNumberId"
+          });
+        }
+      }
+    }
+
+    const wabaId = String(credentials.wabaId || "").trim();
+    if (wabaId) {
+      entries.push({ receiverId: wabaId, matchedField: "credentials.wabaId" });
+    }
+
+    return entries;
   }
 
   if (platform === "meta_leads") {
@@ -119,7 +143,7 @@ async function buildRoutingIndex() {
     for (const platform of SUPPORTED_PLATFORMS) {
       const docs = await collection
         .find(
-          { platform, status: "connected" },
+          { platform, status: { $in: ["connected", "error"] } },
           {
             projection: {
               credentials: 1,
@@ -133,7 +157,8 @@ async function buildRoutingIndex() {
         .toArray();
 
       docs.forEach((doc) => {
-        if (!isStatusConnected(doc.status)) {
+        const status = String(doc.status || "").toLowerCase();
+        if (status !== "connected" && status !== "error") {
           return;
         }
 
@@ -281,6 +306,18 @@ function resolveProjectWebhook(platform, receiverId) {
   return routingIndex.get(buildRouteKey(platform, receiverId)) || null;
 }
 
+/** Try multiple receiver IDs (e.g. WhatsApp phone_number_id then WABA entry id). */
+function resolveProjectWebhookAny(platform, receiverIds) {
+  const ids = Array.isArray(receiverIds) ? receiverIds : [receiverIds];
+  for (const receiverId of ids) {
+    const resolved = resolveProjectWebhook(platform, receiverId);
+    if (resolved) {
+      return { ...resolved, matchedReceiverId: receiverId };
+    }
+  }
+  return null;
+}
+
 function getResolverStats() {
   return {
     ...resolverStats,
@@ -301,6 +338,7 @@ module.exports = {
   initProjectResolver,
   shutdownProjectResolver,
   resolveProjectWebhook,
+  resolveProjectWebhookAny,
   getResolverStats,
   refreshRoutingIndex,
   getConfiguredProjects
