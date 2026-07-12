@@ -90,8 +90,18 @@ function readReceiverIds(platform, integrationDoc) {
   }
 
   if (platform === "facebook") {
-    const facebookPageId = String(credentials.facebookPageId || "").trim();
-    return facebookPageId ? [{ receiverId: facebookPageId, matchedField: "credentials.facebookPageId" }] : [];
+    const entries = [];
+    const facebookPageId = String(credentials.facebookPageId || credentials.pageId || "").trim();
+    if (facebookPageId) {
+      entries.push({ receiverId: facebookPageId, matchedField: "credentials.facebookPageId" });
+      if (!Number.isNaN(Number(facebookPageId))) {
+        const normalized = String(Number(facebookPageId));
+        if (normalized !== facebookPageId) {
+          entries.push({ receiverId: normalized, matchedField: "credentials.facebookPageId" });
+        }
+      }
+    }
+    return entries;
   }
 
   if (platform === "whatsapp") {
@@ -198,6 +208,27 @@ async function buildRoutingIndex() {
 
           nextIndex.set(routeKey, candidate);
         });
+
+        // Facebook integrations may carry a linked Instagram account id — index for IG routing too.
+        if (platform === "facebook") {
+          const igId = String(doc?.credentials?.instagramAccountId || "").trim();
+          const igForwardUrl = project.backendWebhookUrls.instagram;
+          if (igId && igForwardUrl) {
+            const igRouteKey = buildRouteKey("instagram", igId);
+            const igCandidate = createRouteRecord({
+              platform: "instagram",
+              receiverId: igId,
+              projectId: project.projectId,
+              forwardUrl: igForwardUrl,
+              integrationId: String(doc._id || ""),
+              matchedField: "credentials.instagramAccountId (from facebook integration)",
+              connectedAt
+            });
+            if (!nextIndex.has(igRouteKey)) {
+              nextIndex.set(igRouteKey, igCandidate);
+            }
+          }
+        }
       });
     }
   }

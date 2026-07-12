@@ -64,7 +64,14 @@ function getRouteContext(payload, entry) {
 
     const isInstagramScoped = Boolean(entry?.changes?.[0]?.value?.instagram_account_id);
     if (isInstagramScoped) {
-      return { platform: "instagram", receiverId, eventType: "instagram_change" };
+      const igAccountId =
+        entry?.changes?.find((c) => c?.value?.instagram_account_id)?.value?.instagram_account_id ||
+        entry?.changes?.[0]?.value?.instagram_account_id;
+      return {
+        platform: "instagram",
+        receiverId: igAccountId ? String(igAccountId) : receiverId,
+        eventType: "instagram_change"
+      };
     }
 
     return { platform: "facebook", receiverId, eventType: "page" };
